@@ -1,36 +1,24 @@
 import math
 import httpx
-from fastapi import FastAPI, Request, Query, Response
+from fastapi import FastAPI, Request
 
 app = FastAPI()
 
 # Configuration
-VERIFY_TOKEN = "MY_SECURE_VERIFY_TOKEN"
-WHATSAPP_TOKEN = "YOUR_META_ACCESS_TOKEN"
-PHONE_NUMBER_ID = "YOUR_WHATSAPP_PHONE_NUMBER_ID"
-SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzgOMGpzbRkBSJWNPfvWeo4qKbOpVFkoW2xkRuhQSm3M7TAK3siq2rhFAfb64PAOr6cOA/exec"
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_FROM_BOTFATHER"
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+SHEET_API_URL = "https://docs.google.com/spreadsheets/d/1PVvVnUfudCfcl2LAMKf0VITaSevPn6JKpkcswrGDByU/edit?resourcekey=&gid=1143725382#gid=1143725382"
 
-# 1. Haversine Distance Calculation (in km)
+# 1. Haversine Distance Formula (km)
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0  # Earth's radius in kilometers
+    R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-# 2. WhatsApp Verification Handshake
-@app.get("/webhook")
-async def verify_webhook(
-    hub_mode: str = Query(None, alias="hub.mode"),
-    hub_challenge: str = Query(None, alias="hub.challenge"),
-    hub_verify_token: str = Query(None, alias="hub.verify_token")
-):
-    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
-        return Response(content=hub_challenge, media_type="text/plain")
-    return Response(status_code=403)
-
-# 3. Core Engine: Fetch, Filter, and Rank
+# 2. Fetch Places from Google Sheet
 async def find_recommendations(user_lat: float, user_lng: float, max_radius_km: float = 15.0):
     async with httpx.AsyncClient(follow_redirects=True) as client:
         res = await client.get(SHEET_API_URL)
@@ -54,62 +42,64 @@ async def find_recommendations(user_lat: float, user_lng: float, max_radius_km: 
         except (ValueError, TypeError):
             continue
 
-    # Sort by nearest distance first
     return sorted(results, key=lambda x: x["distance"])[:3]
 
-# 4. Outbound WhatsApp Message Dispatcher
-async def send_whatsapp_message(to_number: str, message_text: str):
-    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
+# 3. Outbound Message Dispatcher (Telegram)
+async def send_telegram_message(chat_id: int, text: str):
     payload = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "text",
-        "text": {"body": message_text}
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": False
     }
     async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload, headers=headers)
+        await client.post(f"{TELEGRAM_API_URL}/sendMessage", json=payload)
 
-# 5. Inbound Webhook Listener
+# 4. Inbound Telegram Webhook Receiver
 @app.post("/webhook")
-async def handle_incoming(request: Request):
+async def telegram_webhook(request: Request):
     payload = await request.json()
     
-    try:
-        entry = payload["entry"][0]["changes"][0]["value"]
-        if "messages" not in entry:
-            return {"status": "ignored"}
-            
-        message = entry["messages"][0]
-        sender = message["from"]
-
-        # If user sends a live/pin location
-        if message["type"] == "location":
-            lat = message["location"]["latitude"]
-            lng = message["location"]["longitude"]
-            
-            recs = await find_recommendations(lat, lng)
-            if not recs:
-                reply = "No saved recommendations found within 15 km of your location."
-            else:
-                reply = "📍 *Top Places Near You:*\n\n"
-                for r in recs:
-                    reply += f"⭐ *{r['name']}* ({r['category']})\n"
-                    reply += f"• Distance: {r['distance']} km\n"
-                    reply += f"• Rating: {r['rating']}/5\n"
-                    if r['notes']:
-                        reply += f"• Note: {r['notes']}\n"
-                    if r['maps']:
-                        reply += f"• Link: {r['maps']}\n"
-                    reply += "\n"
-            await send_whatsapp_message(sender, reply)
-        else:
-            await send_whatsapp_message(sender, "Send your location pin via WhatsApp to find nearby recommendations!")
-            
-    except Exception as e:
-        print(f"Error: {e}")
+    if "message" not in payload:
+        return {"status": "ok"}
+    
+    message = payload["message"]
+    chat_id = message["chat"]["id"]
+    
+    # Handle Location Pin
+    if "location" in message:
+        user_lat = message["location"]["latitude"]
+        user_lng = message["location"]["longitude"]
         
+        recs = await find_recommendations(user_lat, user_lng)
+        
+        if not recs:
+            reply = "📍 *No saved recommendations found within 15 km of your location.*"
+        else:
+            reply = "📍 *Top Places Near You:*\n\n"
+            for r in recs:
+                reply += f"⭐ *{r['name']}* ({r['category']})\n"
+                reply += f"• Distance: `{r['distance']} km`\n"
+                reply += f"• Rating: {r['rating']}/5\n"
+                if r['notes']:
+                    reply += f"• Note: _{r['notes']}_\n"
+                if r['maps']:
+                    reply += f"• [Open in Google Maps]({r['maps']})\n"
+                reply += "\n"
+                
+        await send_telegram_message(chat_id, reply)
+    
+    # Handle Text / Welcome Commands
+    else:
+        text = message.get("text", "")
+        if text.startswith("/start"):
+            welcome = (
+                "👋 *Welcome to SpotFinder!*\n\n"
+                "Send me your current location or drop a pin using the attachment button (📎 $\rightarrow$ Location), "
+                "and I'll show you my top-rated places nearby."
+            )
+            await send_telegram_message(chat_id, welcome)
+        else:
+            await send_telegram_message(chat_id, "📍 Please share a location pin to find nearby spots.")
+            
     return {"status": "ok"}
