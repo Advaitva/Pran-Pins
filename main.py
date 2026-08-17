@@ -8,7 +8,7 @@ app = FastAPI(title="Multi-Channel Recommendation Bot")
 # ---------------------------------------------------------
 # CONFIGURATION & ENVIRONMENT VARIABLES
 # ---------------------------------------------------------
-SHEET_API_URL = os.getenv("SHEET_API_URL", "https://docs.google.com/spreadsheets/d/1PVvVnUfudCfcl2LAMKf0VITaSevPn6JKpkcswrGDByU/edit?resourcekey=&gid=1143725382#gid=1143725382")
+SHEET_API_URL = os.getenv("SHEET_API_URL", "https://docs.google.com/spreadsheets/d/1PVvVnUfudCfcl2LAMKf0VITaSevPn6JKpkcswrGDByU/edit?resourcekey=&gid=1143725382#gid=1143725382/exec")
 
 # Telegram Config
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8811090240:AAFNMoQKp3h99xVFQhbK9-MqV1rSsEIO2Ig")
