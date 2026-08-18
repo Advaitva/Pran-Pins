@@ -42,18 +42,43 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-async def get_nearby_recommendations(user_lat: float, user_lng: float, max_radius_km: float = 15.0):
-    """Fetches places from Google Sheets and filters by distance."""
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+async def get_nearby_recommendations(
+    user_lat: float,
+    user_lng: float,
+    max_radius_km: float = 15.0
+):
+    async with httpx.AsyncClient(
+        follow_redirects=True
+    ) as client:
+
         res = await client.get(SHEET_API_URL)
+
+        print("====================================")
+        print("SHEET STATUS:", res.status_code)
+        print("SHEET CONTENT TYPE:", res.headers.get("content-type"))
+        print("SHEET URL:", str(res.url))
+        print("SHEET RESPONSE:")
+        print(res.text[:2000])
+        print("====================================")
+
+        res.raise_for_status()
+
         places = res.json()
 
     results = []
+
     for place in places:
         try:
             p_lat = float(place.get("Latitude"))
             p_lng = float(place.get("Longitude"))
-            dist = haversine(user_lat, user_lng, p_lat, p_lng)
+
+            dist = haversine(
+                user_lat,
+                user_lng,
+                p_lat,
+                p_lng
+            )
+
             if dist <= max_radius_km:
                 results.append({
                     "name": place.get("Name"),
@@ -63,10 +88,14 @@ async def get_nearby_recommendations(user_lat: float, user_lng: float, max_radiu
                     "maps": place.get("Maps Link"),
                     "distance": round(dist, 2)
                 })
+
         except (ValueError, TypeError):
             continue
 
-    return sorted(results, key=lambda x: x["distance"])[:3]
+    return sorted(
+        results,
+        key=lambda x: x["distance"]
+    )[:3]
 
 def format_recommendation_text(recs: list, is_telegram: bool = True) -> str:
     """Formats recommendations into clean Markdown for messaging apps."""
