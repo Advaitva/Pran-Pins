@@ -84,8 +84,8 @@ async def get_nearby_recommendations(
                     "name": place.get("Name"),
                     "category": place.get("Category"),
                     "rating": place.get("Rating"),
-                    "notes": place.get("Notes / Must-Try"),
-                    "maps": place.get("Maps Link"),
+                    "notes": place.get("Notes/Must-Try"),
+                    "maps": place.get("Final Maps Link"),
                     "distance": round(dist, 2)
                 })
 
@@ -153,94 +153,5 @@ async def telegram_webhook(request: Request):
             await send_telegram_message(chat_id, welcome)
         else:
             await send_telegram_message(chat_id, "📍 Please drop a location pin to find recommendations.")
-
-    return {"status": "ok"}
-
-
-# ---------------------------------------------------------
-# 3. TWILIO WHATSAPP ADAPTER
-# ---------------------------------------------------------
-async def send_twilio_whatsapp(to_number: str, text: str):
-    """Sends WhatsApp messages via Twilio REST API"""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
-    data = {
-        "From": TWILIO_PHONE_NUMBER,
-        "To": to_number,
-        "Body": text
-    }
-    async with httpx.AsyncClient() as client:
-        await client.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
-
-@app.post("/twilio/webhook")
-async def twilio_webhook(
-    From: str = Form(...),
-    Body: str = Form(None),
-    Latitude: float = Form(None),
-    Longitude: float = Form(None)
-):
-    if Latitude is not None and Longitude is not None:
-        recs = await get_nearby_recommendations(Latitude, Longitude)
-        reply = format_recommendation_text(recs, is_telegram=False)
-        await send_twilio_whatsapp(From, reply)
-    else:
-        msg = (
-            "📍 *SpotFinder on WhatsApp*\n\n"
-            "Drop a location pin using the paperclip/plus icon to see nearby spots!"
-        )
-        await send_twilio_whatsapp(From, msg)
-        
-    return PlainTextResponse(status_code=200)
-
-
-# ---------------------------------------------------------
-# 4. META CLOUD API WHATSAPP ADAPTER
-# ---------------------------------------------------------
-async def send_whatsapp_message(to_number: str, message_text: str):
-    url = f"https://graph.facebook.com/v20.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to_number,
-        "type": "text",
-        "text": {"body": message_text}
-    }
-    async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload, headers=headers)
-
-@app.get("/whatsapp/webhook")
-async def verify_whatsapp_webhook(
-    hub_mode: str = Query(None, alias="hub.mode"),
-    hub_challenge: str = Query(None, alias="hub.challenge"),
-    hub_verify_token: str = Query(None, alias="hub.verify_token")
-):
-    if hub_mode == "subscribe" and hub_verify_token == META_VERIFY_TOKEN:
-        return Response(content=hub_challenge, media_type="text/plain")
-    return Response(status_code=403)
-
-@app.post("/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    payload = await request.json()
-    try:
-        entry = payload["entry"][0]["changes"][0]["value"]
-        if "messages" not in entry:
-            return {"status": "ignored"}
-
-        message = entry["messages"][0]
-        sender = message["from"]
-
-        if message["type"] == "location":
-            lat = message["location"]["latitude"]
-            lng = message["location"]["longitude"]
-            recs = await get_nearby_recommendations(lat, lng)
-            reply = format_recommendation_text(recs, is_telegram=False)
-            await send_whatsapp_message(sender, reply)
-        else:
-            await send_whatsapp_message(sender, "📍 Send a location pin via WhatsApp to see nearby recommendations!")
-
-    except Exception as e:
-        print(f"WhatsApp Webhook Error: {e}")
 
     return {"status": "ok"}
