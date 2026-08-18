@@ -2,6 +2,48 @@ import os
 import math
 import httpx
 from fastapi import FastAPI, Request, Query, Response
+from fastapi import Form
+from fastapi.responses import PlainTextResponse
+
+# Outbound Twilio WhatsApp Sender
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "whatsapp:+17372212163")
+
+async def send_twilio_whatsapp(to_number: str, text: str):
+    """Sends WhatsApp messages via Twilio REST API"""
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
+    data = {
+        "From": TWILIO_PHONE_NUMBER,
+        "To": to_number,
+        "Body": text
+    }
+    async with httpx.AsyncClient() as client:
+        await client.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
+
+# Twilio Inbound Webhook Endpoint
+@app.post("/twilio/webhook")
+async def twilio_webhook(
+    From: str = Form(...),
+    Body: str = Form(None),
+    Latitude: float = Form(None),
+    Longitude: float = Form(None)
+):
+    # Handle Location Pin
+    if Latitude is not None and Longitude is not None:
+        recs = await get_nearby_recommendations(Latitude, Longitude)
+        reply = format_recommendation_text(recs, is_telegram=False)
+        await send_twilio_whatsapp(From, reply)
+    
+    # Handle Text / Menu Prompts
+    else:
+        msg = (
+            "📍 *SpotFinder on WhatsApp*\n\n"
+            "Drop a location pin using the paperclip/plus icon to see nearby spots!"
+        )
+        await send_twilio_whatsapp(From, msg)
+        
+    return PlainTextResponse(status_code=200)
 
 app = FastAPI(title="Multi-Channel Recommendation Bot")
 
