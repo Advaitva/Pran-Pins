@@ -108,7 +108,7 @@ def format_recommendation_text(recs: list, is_telegram: bool = True) -> str:
         text += f"• Distance: {r['distance']} km\n"
         text += f"• Rating: {r['rating']}/5\n"
         if r['notes']:
-            text += f"• Note: _{r['notes']}_\n" if is_telegram else f"• Note: {r['notes']}\n"
+            text += f"• Notes/Must-Try: _{r['notes']}_\n" if is_telegram else f"• Note: {r['notes']}\n"
         if r['maps']:
             text += f"• [Google Maps]({r['maps']})\n" if is_telegram else f"• Maps: {r['maps']}\n"
         text += "\n"
