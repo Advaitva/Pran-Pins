@@ -122,7 +122,10 @@ async def send_telegram_message(chat_id: int, text: str):
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": False
+        "disable_web_page_preview": True,  # Disables the preview tile
+        "link_preview_options": {           # Telegram Bot API standard format
+            "is_disabled": True
+        }
     }
     async with httpx.AsyncClient() as client:
         await client.post(f"{TELEGRAM_API_URL}/sendMessage", json=payload)
