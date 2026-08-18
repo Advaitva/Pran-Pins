@@ -1,62 +1,30 @@
 import os
 import math
 import httpx
-from fastapi import FastAPI, Request, Query, Response
-from fastapi import Form
+from fastapi import FastAPI, Request, Query, Response, Form
 from fastapi.responses import PlainTextResponse
 
-# Outbound Twilio WhatsApp Sender
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "whatsapp:+17372212163")
-
-async def send_twilio_whatsapp(to_number: str, text: str):
-    """Sends WhatsApp messages via Twilio REST API"""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
-    data = {
-        "From": TWILIO_PHONE_NUMBER,
-        "To": to_number,
-        "Body": text
-    }
-    async with httpx.AsyncClient() as client:
-        await client.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
-
-# Twilio Inbound Webhook Endpoint
-@app.post("/twilio/webhook")
-async def twilio_webhook(
-    From: str = Form(...),
-    Body: str = Form(None),
-    Latitude: float = Form(None),
-    Longitude: float = Form(None)
-):
-    # Handle Location Pin
-    if Latitude is not None and Longitude is not None:
-        recs = await get_nearby_recommendations(Latitude, Longitude)
-        reply = format_recommendation_text(recs, is_telegram=False)
-        await send_twilio_whatsapp(From, reply)
-    
-    # Handle Text / Menu Prompts
-    else:
-        msg = (
-            "📍 *SpotFinder on WhatsApp*\n\n"
-            "Drop a location pin using the paperclip/plus icon to see nearby spots!"
-        )
-        await send_twilio_whatsapp(From, msg)
-        
-    return PlainTextResponse(status_code=200)
-
+# ---------------------------------------------------------
+# FASTAPI APP INITIALIZATION
+# ---------------------------------------------------------
 app = FastAPI(title="Multi-Channel Recommendation Bot")
 
 # ---------------------------------------------------------
 # CONFIGURATION & ENVIRONMENT VARIABLES
 # ---------------------------------------------------------
-SHEET_API_URL = os.getenv("SHEET_API_URL", "https://docs.google.com/spreadsheets/d/1PVvVnUfudCfcl2LAMKf0VITaSevPn6JKpkcswrGDByU/edit?resourcekey=&gid=1143725382#gid=1143725382/exec")
+# NOTE: This MUST be the Google Apps Script Web App URL ending in /exec
+SHEET_API_URL = os.getenv("SHEET_API_URL", "YOUR_GOOGLE_APPS_SCRIPT_DEPLOYMENT_URL")
 
 # Telegram Config
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8811090240:AAFNMoQKp3h99xVFQhbK9-MqV1rSsEIO2Ig")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-# WhatsApp (Meta) Config
+# Twilio WhatsApp Config
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "whatsapp:+17372212163")
+
+# WhatsApp (Meta Cloud API) Config
 META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "MY_SECURE_VERIFY_TOKEN")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "YOUR_META_PERMANENT_ACCESS_TOKEN")
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "YOUR_PHONE_NUMBER_ID")
@@ -161,7 +129,42 @@ async def telegram_webhook(request: Request):
 
 
 # ---------------------------------------------------------
-# 3. WHATSAPP (META) CHANNEL ADAPTER
+# 3. TWILIO WHATSAPP ADAPTER
+# ---------------------------------------------------------
+async def send_twilio_whatsapp(to_number: str, text: str):
+    """Sends WhatsApp messages via Twilio REST API"""
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
+    data = {
+        "From": TWILIO_PHONE_NUMBER,
+        "To": to_number,
+        "Body": text
+    }
+    async with httpx.AsyncClient() as client:
+        await client.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
+
+@app.post("/twilio/webhook")
+async def twilio_webhook(
+    From: str = Form(...),
+    Body: str = Form(None),
+    Latitude: float = Form(None),
+    Longitude: float = Form(None)
+):
+    if Latitude is not None and Longitude is not None:
+        recs = await get_nearby_recommendations(Latitude, Longitude)
+        reply = format_recommendation_text(recs, is_telegram=False)
+        await send_twilio_whatsapp(From, reply)
+    else:
+        msg = (
+            "📍 *SpotFinder on WhatsApp*\n\n"
+            "Drop a location pin using the paperclip/plus icon to see nearby spots!"
+        )
+        await send_twilio_whatsapp(From, msg)
+        
+    return PlainTextResponse(status_code=200)
+
+
+# ---------------------------------------------------------
+# 4. META CLOUD API WHATSAPP ADAPTER
 # ---------------------------------------------------------
 async def send_whatsapp_message(to_number: str, message_text: str):
     url = f"https://graph.facebook.com/v20.0/{WHATSAPP_PHONE_ID}/messages"
@@ -178,7 +181,6 @@ async def send_whatsapp_message(to_number: str, message_text: str):
     async with httpx.AsyncClient() as client:
         await client.post(url, json=payload, headers=headers)
 
-# Meta Handshake Verification
 @app.get("/whatsapp/webhook")
 async def verify_whatsapp_webhook(
     hub_mode: str = Query(None, alias="hub.mode"),
@@ -189,7 +191,6 @@ async def verify_whatsapp_webhook(
         return Response(content=hub_challenge, media_type="text/plain")
     return Response(status_code=403)
 
-# Meta Inbound Message Handler
 @app.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
     payload = await request.json()
