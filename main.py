@@ -147,9 +147,9 @@ async def telegram_webhook(request: Request):
         text = message.get("text", "")
         if text.startswith("/start"):
             welcome = (
-                "👋 *Welcome to SpotFinder!*\n\n"
-                "Send your location pin (📎 $\rightarrow$ Location) to get top-rated nearby spots."
-            )
+             "✨ *Welcome to Pran’s Pins!*\n\n"
+    "Whether you need a cozy cafe, great food, or a quiet getaway, I’ve got you covered.\n\n"
+    "📍 Share your location pin with me (📎 / ➕ ➔ Location), and I’ll show you the best hand-picked spots near you!"          )
             await send_telegram_message(chat_id, welcome)
         else:
             await send_telegram_message(chat_id, "📍 Please drop a location pin to find recommendations.")
